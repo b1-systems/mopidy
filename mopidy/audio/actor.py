@@ -10,7 +10,7 @@ from mopidy.audio import utils
 from mopidy.audio.constants import PlaybackState
 from mopidy.audio.listener import AudioListener
 from mopidy.internal import process
-from mopidy.internal.gi import GLib, GObject, Gst, GstPbutils
+from mopidy.internal.gi import GLib, GObject, Gst, GstPbutils, GstAudio
 
 logger = logging.getLogger(__name__)
 
@@ -142,12 +142,13 @@ class _Outputs(Gst.Bin):
 
 
 class SoftwareMixer:
-    def __init__(self, mixer):
+    def __init__(self, mixer, mixer_nonlinear):
         self._mixer = mixer
         self._element = None
         self._last_volume = None
         self._last_mute = None
         self._signals = utils.Signals()
+        self._mixer_nonlinear = mixer_nonlinear
 
     def setup(self, element, mixer_ref):
         self._element = element
@@ -157,11 +158,23 @@ class SoftwareMixer:
         self._signals.clear()
         self._mixer.teardown()
 
+    def convert_volume(self, volume, to_gst):
+        if not self._mixer_nonlinear:
+            return volume
+        _cub = GstAudio.StreamVolumeFormat.CUBIC
+        _lin = GstAudio.StreamVolumeFormat.LINEAR
+        if to_gst:
+            return GstAudio.StreamVolume.convert_volume(_cub, _lin, volume)
+        else:
+            return GstAudio.StreamVolume.convert_volume(_lin, _cub, volume)
+
     def get_volume(self):
-        return int(round(self._element.get_property("volume") * 100))
+        prop = self._element.get_property("volume")
+        return int(round(self.convert_volume(prop, False) * 100))
 
     def set_volume(self, volume):
-        self._element.set_property("volume", volume / 100.0)
+        vol = self.convert_volume(volume / 100.0, True)
+        self._element.set_property("volume", vol)
         self._mixer.trigger_volume_changed(self.get_volume())
 
     def get_mute(self):
@@ -448,7 +461,7 @@ class Audio(pykka.ThreadingActor):
         self._signals = utils.Signals()
 
         if mixer and self._config["audio"]["mixer"] == "software":
-            self.mixer = pykka.traversable(SoftwareMixer(mixer))
+            self.mixer = pykka.traversable(SoftwareMixer(mixer, self._config["audio"]["mixer_nonlinear"]))
 
     def on_start(self):
         self._thread = threading.current_thread()

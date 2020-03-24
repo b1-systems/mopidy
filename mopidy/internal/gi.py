@@ -25,7 +25,8 @@ except ImportError:
 else:
     Gst.init([])
     gi.require_version("GstPbutils", "1.0")
-    from gi.repository import GstPbutils
+    gi.require_version("GstAudio", "1.0")
+    from gi.repository import GstPbutils, GstAudio
 
 GLib.set_prgname("mopidy")
 GLib.set_application_name("Mopidy")
@@ -44,6 +45,7 @@ __all__ = [
     "GLib",
     "GObject",
     "Gst",
+    "GstAudio",
     "GstPbutils",
     "gi",
 ]
